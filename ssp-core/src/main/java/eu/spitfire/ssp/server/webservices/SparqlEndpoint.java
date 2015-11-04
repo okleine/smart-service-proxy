@@ -3,12 +3,11 @@ package eu.spitfire.ssp.server.webservices;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.SettableFuture;
+import eu.spitfire.ssp.server.internal.message.InternalQueryExecutionRequest;
+import eu.spitfire.ssp.server.internal.wrapper.QueryExecutionResults;
+import eu.spitfire.ssp.server.internal.utils.HttpResponseFactory;
 import com.hp.hpl.jena.query.Query;
 import com.hp.hpl.jena.query.QueryFactory;
-import com.hp.hpl.jena.query.ResultSet;
-import eu.spitfire.ssp.server.http.HttpResponseFactory;
-import eu.spitfire.ssp.server.internal.messages.requests.QueryTask;
-import eu.spitfire.ssp.server.internal.messages.responses.QueryResult;
 import org.jboss.netty.channel.Channel;
 import org.jboss.netty.channel.ChannelFuture;
 import org.jboss.netty.channel.ChannelFutureListener;
@@ -34,7 +33,7 @@ public class SparqlEndpoint extends HttpWebservice{
     public SparqlEndpoint(ExecutorService ioExecutor, ScheduledExecutorService internalTasksExecutor,
                           LocalServerChannel localChannel){
 
-        super(ioExecutor, internalTasksExecutor, "html/sparql/sparql-endpoint.html");
+        super(ioExecutor, internalTasksExecutor, "html/services/sparql-endpoint.html");
         this.localChannel = localChannel;
     }
 
@@ -45,22 +44,29 @@ public class SparqlEndpoint extends HttpWebservice{
 
         //Decode SPARQL query from POST request
         HttpPostRequestDecoder decoder = new HttpPostRequestDecoder(httpRequest);
+
+        //String query = ((MixedAttribute) decoder.getBodyHttpData("query")).getValue();
         Query query = QueryFactory.create(((MixedAttribute) decoder.getBodyHttpData("query")).getValue());
 
         //Execute SPARQL query, await the result and send it to the client
-        Futures.addCallback(executeQuery(query), new FutureCallback<ResultSet>() {
+
+        Futures.addCallback(executeQuery(query), new FutureCallback<QueryExecutionResults>() {
             @Override
-            public void onSuccess(ResultSet resultSet) {
-                QueryResult queryResult = new QueryResult(resultSet);
-                ChannelFuture future = Channels.write(channel, queryResult, clientAddress);
+            public void onSuccess(QueryExecutionResults results) {
+
+                ChannelFuture future = Channels.write(channel, results, clientAddress);
                 future.addListener(ChannelFutureListener.CLOSE);
+
+//                ResultSet resultSet = results.getResultSet();
+//                ChannelFuture future = Channels.write(channel, resultSet, clientAddress);
+//                future.addListener(ChannelFutureListener.CLOSE);
             }
 
             @Override
             public void onFailure(Throwable t) {
                 HttpResponseStatus status = HttpResponseStatus.INTERNAL_SERVER_ERROR;
                 HttpResponse httpResponse = HttpResponseFactory.createHttpResponse(
-                        httpRequest.getProtocolVersion(), status, t.getMessage()
+                        httpRequest.getProtocolVersion(), status, t
                 );
 
                 writeHttpResponse(channel, httpResponse, clientAddress);
@@ -69,12 +75,12 @@ public class SparqlEndpoint extends HttpWebservice{
     }
 
 
-    private SettableFuture<ResultSet> executeQuery(Query query) throws Exception{
+    private SettableFuture<QueryExecutionResults> executeQuery(Query query) throws Exception{
 
-        SettableFuture<ResultSet> resultSetFuture = SettableFuture.create();
-        QueryTask queryTask = new QueryTask(query, resultSetFuture);
-        Channels.write(this.localChannel, queryTask);
+        InternalQueryExecutionRequest executionRequest = new InternalQueryExecutionRequest(query);
 
-        return resultSetFuture;
+        Channels.write(this.localChannel, executionRequest);
+
+        return executionRequest.getResultsFuture();
     }
 }

@@ -1,13 +1,12 @@
 package eu.spitfire.ssp;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import eu.spitfire.ssp.backends.external.coap.CoapBackendComponentFactory;
-import eu.spitfire.ssp.backends.external.n3files.N3FileBackendComponentFactory;
-import eu.spitfire.ssp.backends.generic.BackendComponentFactory;
-import eu.spitfire.ssp.backends.internal.se.SemanticEntityBackendComponentFactory;
-import eu.spitfire.ssp.backends.internal.vs.VirtualSensorBackendComponentFactory;
-import eu.spitfire.ssp.server.handler.cache.*;
-import eu.spitfire.ssp.server.internal.messages.requests.WebserviceRegistration;
+import eu.spitfire.ssp.backend.coap.CoapComponentFactory;
+import eu.spitfire.ssp.backend.files.TurtleFilesComponentFactory;
+import eu.spitfire.ssp.backend.generic.ComponentFactory;
+import eu.spitfire.ssp.backend.vs.VirtualSensorsComponentFactory;
+import eu.spitfire.ssp.server.handler.SemanticCache;
+import eu.spitfire.ssp.server.internal.message.WebserviceRegistration;
 import eu.spitfire.ssp.server.handler.HttpRequestDispatcher;
 import eu.spitfire.ssp.server.pipelines.HttpProxyPipelineFactory;
 import eu.spitfire.ssp.server.webservices.*;
@@ -26,7 +25,6 @@ import org.jboss.netty.handler.execution.OrderedMemoryAwareThreadPoolExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.util.ArrayList;
@@ -58,7 +56,7 @@ public abstract class Initializer {
     private HttpRequestDispatcher httpRequestDispatcher;
     protected SemanticCache semanticCache;
 
-    private Collection<BackendComponentFactory> componentFactories;
+    private Collection<ComponentFactory> componentFactories;
 
     public Initializer(String configPath) throws Exception {
         //initialize logging
@@ -98,16 +96,18 @@ public abstract class Initializer {
         registerHomepage();
         registerFavicon();
         registerSparqlEndpoint();
+        registerResourceDirectory();
+        registerGraphDirectory();
 
         //this is just an example on what is possible...
         registerTrafficMonitoring();
 
-        //Start the backends
-        for (BackendComponentFactory componentFactory : this.getComponentFactories()) {
+        //Start the backend
+        for (ComponentFactory componentFactory : this.getComponentFactories()) {
             componentFactory.createComponents(config);
         }
 
-        log.info("SSP succesfully started!");
+        log.info("SSP successfully started!");
     }
 
 
@@ -116,8 +116,7 @@ public abstract class Initializer {
         int threads = this.config.getInt("ssp.threads.internal", 0);
 
         //Scheduled Executor Service for management tasks, i.e. everything that is not I/O
-        ThreadFactory threadFactory = new ThreadFactoryBuilder().setNameFormat("SSP Internal Thread #%d")
-                .build();
+        ThreadFactory threadFactory = new ThreadFactoryBuilder().setNameFormat("SSP Internal Thread #%d").build();
 
         int threadCount = Math.max(Runtime.getRuntime().availableProcessors() * 2, threads);
 
@@ -132,8 +131,7 @@ public abstract class Initializer {
 
         int threadCount = Math.max(Runtime.getRuntime().availableProcessors() * 2, threads);
 
-        ThreadFactory threadFactory = new ThreadFactoryBuilder().setNameFormat("SSP I/O Thread #%d")
-                .build();
+        ThreadFactory threadFactory = new ThreadFactoryBuilder().setNameFormat("SSP I/O Thread #%d").build();
 
         this.ioExecutor = new OrderedMemoryAwareThreadPoolExecutor(threadCount, 0, 0, 60, TimeUnit.SECONDS,
                 threadFactory);
@@ -156,7 +154,7 @@ public abstract class Initializer {
     }
 
 
-    public Collection<BackendComponentFactory> getComponentFactories() {
+    public Collection<ComponentFactory> getComponentFactories() {
         return this.componentFactories;
     }
 
@@ -164,26 +162,26 @@ public abstract class Initializer {
     private void createBackendComponentFactories() throws Exception {
         this.componentFactories = new ArrayList<>();
 
-        //Add backend for semantic entities (default)
-        ChannelPipeline localPipeline = internalPipelineFactory.getPipeline();
-        LocalServerChannel localChannel = localChannelFactory.newChannel(localPipeline);
-        this.componentFactories.add(new SemanticEntityBackendComponentFactory(
-                this.config, localChannel, this.internalTasksExecutor, this.ioExecutor)
-        );
+//        //Add backend for semantic entities (default)
+//        ChannelPipeline localPipeline = internalPipelineFactory.getPipeline();
+//        LocalServerChannel localChannel = localChannelFactory.newChannel(localPipeline);
+//        this.componentFactories.add(new SemanticEntityBackendComponentFactory(
+//                this.config, localChannel, this.internalTasksExecutor, this.ioExecutor)
+//        );
 
         //Add backend for virtual sensors (default)
-        localPipeline = internalPipelineFactory.getPipeline();
-        localChannel = localChannelFactory.newChannel(localPipeline);
-        this.componentFactories.add(new VirtualSensorBackendComponentFactory(
+        ChannelPipeline localPipeline = internalPipelineFactory.getPipeline();
+        LocalServerChannel localChannel = localChannelFactory.newChannel(localPipeline);
+        this.componentFactories.add(new VirtualSensorsComponentFactory(
                 this.config, localChannel, this.internalTasksExecutor, this.ioExecutor)
         );
 
-        //Add N3 file backend
-        if(this.config.getBoolean("n3files.enabled", false)){
+        //Add Turtle file backend
+        if(this.config.getBoolean("files.enabled", false)){
             localPipeline = internalPipelineFactory.getPipeline();
             localChannel = localChannelFactory.newChannel(localPipeline);
 
-            this.componentFactories.add(new N3FileBackendComponentFactory(
+            this.componentFactories.add(new TurtleFilesComponentFactory(
                     this.config, localChannel, this.internalTasksExecutor, this.ioExecutor)
             );
         }
@@ -193,7 +191,7 @@ public abstract class Initializer {
             localPipeline = internalPipelineFactory.getPipeline();
             localChannel = localChannelFactory.newChannel(localPipeline);
 
-            this.componentFactories.add(new CoapBackendComponentFactory(
+            this.componentFactories.add(new CoapComponentFactory(
                     this.config, localChannel, this.internalTasksExecutor, this.ioExecutor)
             );
         }
@@ -331,7 +329,7 @@ public abstract class Initializer {
      */
     private void registerFavicon() throws Exception {
         URI uri = new URI(null, null, null, -1, "/favicon.ico", null, null);
-        HttpWebservice httpWebservice = new Favicon(this.ioExecutor);
+        HttpWebservice httpWebservice = new Favicon(this.ioExecutor, this.internalTasksExecutor);
         registerHttpWebservice(uri, httpWebservice);
     }
 
@@ -351,12 +349,27 @@ public abstract class Initializer {
     }
 
 
-    private void registerTrafficMonitoring() throws Exception{
-        URI uri = new URI(null, null, null, -1, "/services/geo-views/traffic-monitoring", null, null);
-
-        LocalServerChannel localChannel = this.localChannelFactory.newChannel(
-                this.internalPipelineFactory.getPipeline()
+    private void registerGraphDirectory() throws Exception{
+        registerHttpWebservice(
+                new URI(null, null, null, -1, "/services/graph-directory", null, null),
+                new GraphDirectory(this.ioExecutor, this.internalTasksExecutor)
         );
+    }
+
+
+    private void registerResourceDirectory() throws Exception{
+        registerHttpWebservice(
+                new URI(null, null, null, -1, "/services/resource-directory", null, null),
+                new ResourceDirectory(this.ioExecutor, this.internalTasksExecutor)
+        );
+    }
+
+    private void registerTrafficMonitoring() throws Exception{
+        URI uri = new URI(null, null, null, -1, "/applications/traffic-monitoring", null, null);
+
+//        LocalServerChannel localChannel = this.localChannelFactory.newChannel(
+//                this.internalPipelineFactory.getPipeline()
+//        );
 
         HttpWebservice httpWebservice = new TrafficMonitoring(
                 this.ioExecutor, this.internalTasksExecutor

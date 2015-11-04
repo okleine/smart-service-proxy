@@ -1,6 +1,6 @@
 package eu.spitfire.ssp.server.webservices;
 
-import eu.spitfire.ssp.server.http.HttpResponseFactory;
+import eu.spitfire.ssp.server.internal.utils.HttpResponseFactory;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBuffers;
 import org.jboss.netty.channel.*;
@@ -23,15 +23,13 @@ import java.util.concurrent.ScheduledExecutorService;
  * usage.
  *
  * For semantic (i.e. proxying) Webservices extend
- * {@link eu.spitfire.ssp.backends.generic.DataOriginMapper}!
+ * {@link eu.spitfire.ssp.backend.generic.DataOriginMapper}!
  *
  * @author Oliver Kleine
  */
 public abstract class HttpWebservice extends SimpleChannelHandler {
 
     private Logger log = LoggerFactory.getLogger(this.getClass().getName());
-
-
 
     private ExecutorService ioExecutor;
     private ScheduledExecutorService internalTasksExecutor;
@@ -195,7 +193,7 @@ public abstract class HttpWebservice extends SimpleChannelHandler {
                     public void operationComplete(ChannelFuture future) throws Exception {
 
                         if(future.isSuccess())
-                            log.debug("Succesfully written HTTP response to {}", clientAddress);
+                            log.debug("Successfully written HTTP response to {}", clientAddress);
                         else
                             log.error("Could not send HTTP response to {}!", clientAddress, future.getCause());
 
@@ -209,7 +207,7 @@ public abstract class HttpWebservice extends SimpleChannelHandler {
         return this.ioExecutor;
     }
 
-    protected ScheduledExecutorService getInternalTasksExecutor(){
+    protected ScheduledExecutorService getInternalExecutor(){
         return this.internalTasksExecutor;
     }
 }
